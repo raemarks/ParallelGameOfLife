@@ -9,6 +9,18 @@ extern int p;
 extern int n;
 extern int generations;
 
+extern double total_runtime;
+extern double display_time;
+extern int displays;
+extern double send_time;
+extern int sends;
+extern double recv_time;
+extern int recvs;
+extern double barrier_time;
+extern int barriers;
+extern double bcast_time;
+extern int bcasts;
+
 void GenerateInitialGoL();
 void Simulate();
 

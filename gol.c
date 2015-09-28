@@ -4,10 +4,13 @@
 #include <unistd.h>
 #include <mpi.h>
 #include <time.h>
+#include <sys/time.h>
 
 #include "gol.h"
 
 #define BIG_PRIME 982451653
+
+#define MAX_N 8192
 
 /* MPI variables */
 int rank;
@@ -34,9 +37,17 @@ int below_rank;
 /* Number of generations for execution */
 int generations;
 
-double total_runtime;
-double barrier_time;
-double display_time;
+double total_runtime = 0;
+double display_time = 0;
+int displays = 0;
+double send_time = 0;
+int sends = 0;
+double recv_time = 0;
+int recvs = 0;
+double barrier_time = 0;
+int barriers = 0;
+double bcast_time = 0;
+int bcasts = 0;
 
 char *
 get_cell(char *_grid, int row, int col)
@@ -50,6 +61,8 @@ DisplayGoL()
 {
 	int i, row, col;
 	char *remote_grid = (char *) malloc(nrows*n);
+	struct timeval t_send1, t_send2;
+	struct timeval t_recv1, t_recv2;
 	MPI_Status status;
 
 	for(i = 0; i < p; i++) {
@@ -66,8 +79,13 @@ DisplayGoL()
 		}
 		else if (rank == 0) {
 			/* Receive from proc i, print */
+			gettimeofday(&t_recv1, NULL);
 			MPI_Recv(remote_grid, nrows*n, MPI_CHARACTER, i,
 			    MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+			gettimeofday(&t_recv2, NULL);
+			recv_time += (t_recv2.tv_sec-t_recv1.tv_sec)*1000 +
+			    ((double) t_recv2.tv_usec-t_recv1.tv_usec)/1000;
+			recvs++;
 
 			for (row = 0; row < nrows; row++) {
 				putchar('|');
@@ -82,8 +100,13 @@ DisplayGoL()
 			/* Rank == i != 0 */
 			/* Send from proc i to proc 0, skip 1st and last row
 			 * since it doesn't belong to this proc */
+			gettimeofday(&t_send1, NULL);
 			MPI_Send(top_row, nrows*n, MPI_CHARACTER, 0, 0,
 			    MPI_COMM_WORLD);
+			gettimeofday(&t_send2, NULL);
+			send_time += (t_send2.tv_sec-t_send1.tv_sec)*1000 +
+			    ((double) t_send2.tv_usec-t_send1.tv_usec)/1000;
+			sends++;
 		}
 		/* Else don't do anything */
 	}
@@ -111,6 +134,8 @@ void
 GenerateInitialGoL()
 {
 	int row, col, i, myseed = 0, seed = 0;
+	struct timeval t_recv1, t_recv2;
+	struct timeval t_send1, t_send2;
 	MPI_Status status;
 
 	/* Generate p random numbers as seeds for each process. */
@@ -124,7 +149,13 @@ GenerateInitialGoL()
 		for (i = 1; i < p; i++) {
 			seed = rand() % BIG_PRIME;
 			/* Send seed to proc i */
+	//		gettimeofday(&t_send1, NULL);
 			MPI_Send(&seed, 1, MPI_INT, i, 0, MPI_COMM_WORLD);
+	/*		gettimeofday(&t_send2, NULL);
+			send_time += (t_send2.tv_sec-t_send1.tv_sec)*1000 +
+			    ((double) t_send2.tv_usec-t_send1.tv_usec)/1000;
+			sends++;
+			*/
 		}
 
 		/* Re-seed with our randomly generated seed */
@@ -135,8 +166,16 @@ GenerateInitialGoL()
 		for (i = 1; i < p; i++) {
 			if (rank == i) {
 				/* Receive seed, seed rand */
+				//gettimeofday(&t_recv1, NULL);
 				MPI_Recv(&myseed, 1, MPI_INT, 0, MPI_ANY_TAG,
 				    MPI_COMM_WORLD, &status);
+				/*
+				gettimeofday(&t_recv2, NULL);
+				recv_time += (t_recv2.tv_sec-t_recv1.tv_sec)*1000 +
+				    ((double) t_recv2.tv_usec-t_recv1.tv_usec)/1000;
+				recvs++;
+				*/
+
 				srand(myseed);
 			}
 		}
@@ -175,30 +214,56 @@ void
 get_above_neighbors()
 {
 	MPI_Status status;
+	struct timeval t_recv1, t_recv2;
 
+	gettimeofday(&t_recv1, NULL);
 	MPI_Recv(above_neighbors, n, MPI_CHARACTER, above_rank, MPI_ANY_TAG,
 	    MPI_COMM_WORLD, &status);
+	gettimeofday(&t_recv2, NULL);
+	recv_time += (t_recv2.tv_sec-t_recv1.tv_sec)*1000 +
+	    ((double) t_recv2.tv_usec-t_recv1.tv_usec)/1000;
+	recvs++;
 }
 
 void
 get_below_neighbors()
 {
 	MPI_Status status;
+	struct timeval t_recv1, t_recv2;
 
+	gettimeofday(&t_recv1, NULL);
 	MPI_Recv(below_neighbors, n, MPI_CHARACTER, below_rank, MPI_ANY_TAG,
 	    MPI_COMM_WORLD, &status);
+	gettimeofday(&t_recv2, NULL);
+	recv_time += (t_recv2.tv_sec-t_recv1.tv_sec)*1000 +
+	    ((double) t_recv2.tv_usec-t_recv1.tv_usec)/1000;
+	recvs++;
 }
 
 void
 send_top_row()
 {
+	struct timeval t_send1, t_send2;
+
+	gettimeofday(&t_send1, NULL);
 	MPI_Send(top_row, n, MPI_CHARACTER, above_rank, 0, MPI_COMM_WORLD);
+	gettimeofday(&t_send2, NULL);
+	send_time += (t_send2.tv_sec-t_send1.tv_sec)*1000 +
+	    ((double) t_send2.tv_usec-t_send1.tv_usec)/1000;
+	sends++;
 }
 
 void
 send_bottom_row()
 {
+	struct timeval t_send1, t_send2;
+
+	gettimeofday(&t_send1, NULL);
 	MPI_Send(bottom_row, n, MPI_CHARACTER, below_rank, 0, MPI_COMM_WORLD);
+	gettimeofday(&t_send2, NULL);
+	send_time += (t_send2.tv_sec-t_send1.tv_sec)*1000 +
+	    ((double) t_send2.tv_usec-t_send1.tv_usec)/1000;
+	sends++;
 }
 
 char
@@ -266,13 +331,12 @@ Simulate()
 	/* TODO: swap new and old grids! */
 	int i, row, col;
 	char *temp = NULL;
-
-	if (rank == 0)
-		printf("Running simulation on %d rows and %d cols, for %d "
-		    "generations\n", nrows, n, generations);
+	struct timeval t_barrier1, t_barrier2;
+	struct timeval t_display1, t_display2;
 
 	for (i = 0; i < generations; i++) {
-		/* Keep procs on the same generation as each other */
+		if (rank == 0)
+			printf("Gen %d\n", i);
 
 		/* Send current generation top and bottom rows so other procs
 		 * can calculate next generation. */
@@ -299,9 +363,21 @@ Simulate()
 		 * pointing to other grid now */
 		set_pointers();
 
+		gettimeofday(&t_barrier1, NULL);
+		/* Keep procs on the same generation as each other */
 		MPI_Barrier(MPI_COMM_WORLD);
-		if (i % 10 == 0) {
+		gettimeofday(&t_barrier2, NULL);
+		barrier_time += (t_barrier2.tv_sec-t_barrier1.tv_sec)*1000 +
+		    ((double) t_barrier2.tv_usec-t_barrier1.tv_usec)/1000;
+		barriers++;
+
+		if (i % 50 == 0) {
+			gettimeofday(&t_display1, NULL);
 			DisplayGoL();
+			gettimeofday(&t_display2, NULL);
+			display_time += (t_display2.tv_sec-t_display1.tv_sec)*1000 +
+			    ((double) t_display2.tv_usec-t_display1.tv_usec)/1000;
+			displays++;
 		}
 	}
 }
