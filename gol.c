@@ -37,7 +37,6 @@ int generations;
 double total_runtime;
 double barrier_time;
 double display_time;
-double 
 
 char *
 get_cell(char *_grid, int row, int col)
@@ -300,10 +299,9 @@ Simulate()
 		 * pointing to other grid now */
 		set_pointers();
 
-		gettimeofday(&t1, NULL);
 		MPI_Barrier(MPI_COMM_WORLD);
-		if (generation % 10 == 0) {
-			//DisplayGoL();
+		if (i % 10 == 0) {
+			DisplayGoL();
 		}
 	}
 }
