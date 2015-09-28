@@ -1,0 +1,5 @@
+glx4.eecs.wsu.edu:4
+glx2.eecs.wsu.edu:4
+glx1.eecs.wsu.edu:4
+glx3.eecs.wsu.edu:4
+glx5.eecs.wsu.edu:4
