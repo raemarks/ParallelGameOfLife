@@ -20,6 +20,7 @@ extern double barrier_time;
 extern int barriers;
 extern double bcast_time;
 extern int bcasts;
+extern double gather_time;
 
 void GenerateInitialGoL();
 void Simulate();

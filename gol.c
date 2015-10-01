@@ -24,6 +24,10 @@ int nrows;
  * between generations. */
 char *grid;
 char *next_grid;
+/* Used for MPI_Gatherv when gathering whole grid to print */
+char *display_grid;
+int *recv_counts;
+int *displs_counts;
 /* rows containing cells above the top row and below the bottom row of this
  * chunk */
 char *above_neighbors;
@@ -48,6 +52,8 @@ double barrier_time = 0;
 int barriers = 0;
 double bcast_time = 0;
 int bcasts = 0;
+double gather_time = 0;
+int gathers = 0;
 
 char *
 get_cell(char *_grid, int row, int col)
@@ -59,61 +65,30 @@ get_cell(char *_grid, int row, int col)
 void
 DisplayGoL()
 {
-	int i, row, col;
-	char *remote_grid = (char *) malloc(nrows*n);
-	struct timeval t_send1, t_send2;
-	struct timeval t_recv1, t_recv2;
-	MPI_Status status;
+	int row, col;
+	struct timeval t_gather1, t_gather2;
 
-	for(i = 0; i < p; i++) {
-		if (rank == 0 && i == 0) {
-			/* Print proc 0's grid, skip 1st and last rows since
-			 * they don't belong to this proc */
-			for (row = 1; row <= nrows; row++) {
-				putchar('|');
-				for (col = 0; col < n; col++) {
-					printf("%c|", *(get_cell(grid, row, col)));
-				}
-				putchar('\n');
-			}
-		}
-		else if (rank == 0) {
-			/* Receive from proc i, print */
-			gettimeofday(&t_recv1, NULL);
-			MPI_Recv(remote_grid, nrows*n, MPI_CHARACTER, i,
-			    MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-			gettimeofday(&t_recv2, NULL);
-			recv_time += (t_recv2.tv_sec-t_recv1.tv_sec)*1000 +
-			    ((double) t_recv2.tv_usec-t_recv1.tv_usec)/1000;
-			recvs++;
+	printf("Gathering\n");
+	gettimeofday(&t_gather1, NULL);
+	MPI_Gatherv(get_cell(grid, 1, 0), nrows*n, MPI_CHARACTER, display_grid,
+	    recv_counts, displs_counts, MPI_CHARACTER, 0, MPI_COMM_WORLD);
+	gettimeofday(&t_gather2, NULL);
+	gather_time += (t_gather2.tv_sec-t_gather1.tv_sec)*1000 +
+	    ((double) t_gather2.tv_usec-t_gather1.tv_usec)/1000;
+	gathers++;
+	printf("Done gathering\n");
 
-			for (row = 0; row < nrows; row++) {
-				putchar('|');
-				for (col = 0; col < n; col++) {
-					printf("%c|",
-					    *(get_cell(remote_grid, row, col)));
-				}
-				putchar('\n');
+	if (rank == 0) {
+		for (row = 0; row < n; row++) {
+			putchar('|');
+			for (col = 0; col < n; col++) {
+				printf("%c|",
+				    *(get_cell(display_grid, row, col)));
 			}
+			putchar('\n');
 		}
-		else if (rank == i) {
-			/* Rank == i != 0 */
-			/* Send from proc i to proc 0, skip 1st and last row
-			 * since it doesn't belong to this proc */
-			gettimeofday(&t_send1, NULL);
-			MPI_Send(top_row, nrows*n, MPI_CHARACTER, 0, 0,
-			    MPI_COMM_WORLD);
-			gettimeofday(&t_send2, NULL);
-			send_time += (t_send2.tv_sec-t_send1.tv_sec)*1000 +
-			    ((double) t_send2.tv_usec-t_send1.tv_usec)/1000;
-			sends++;
-		}
-		/* Else don't do anything */
-	}
-	if (rank == 0)
 		printf("\n----------------------------------------------\n\n");
-
-	free(remote_grid);
+	}
 }
 
 void
@@ -134,9 +109,8 @@ void
 GenerateInitialGoL()
 {
 	int row, col, i, myseed = 0, seed = 0;
-	struct timeval t_recv1, t_recv2;
-	struct timeval t_send1, t_send2;
 	MPI_Status status;
+
 
 	/* Generate p random numbers as seeds for each process. */
 	if (rank == 0) {
@@ -149,13 +123,7 @@ GenerateInitialGoL()
 		for (i = 1; i < p; i++) {
 			seed = rand() % BIG_PRIME;
 			/* Send seed to proc i */
-	//		gettimeofday(&t_send1, NULL);
 			MPI_Send(&seed, 1, MPI_INT, i, 0, MPI_COMM_WORLD);
-	/*		gettimeofday(&t_send2, NULL);
-			send_time += (t_send2.tv_sec-t_send1.tv_sec)*1000 +
-			    ((double) t_send2.tv_usec-t_send1.tv_usec)/1000;
-			sends++;
-			*/
 		}
 
 		/* Re-seed with our randomly generated seed */
@@ -166,15 +134,8 @@ GenerateInitialGoL()
 		for (i = 1; i < p; i++) {
 			if (rank == i) {
 				/* Receive seed, seed rand */
-				//gettimeofday(&t_recv1, NULL);
 				MPI_Recv(&myseed, 1, MPI_INT, 0, MPI_ANY_TAG,
 				    MPI_COMM_WORLD, &status);
-				/*
-				gettimeofday(&t_recv2, NULL);
-				recv_time += (t_recv2.tv_sec-t_recv1.tv_sec)*1000 +
-				    ((double) t_recv2.tv_usec-t_recv1.tv_usec)/1000;
-				recvs++;
-				*/
 
 				srand(myseed);
 			}
@@ -208,6 +169,15 @@ GenerateInitialGoL()
 	 * remembering that the grid wraps. */
 	above_rank = (rank + p - 1) % p;
 	below_rank = (rank + 1) % p;
+	printf("Above rank: %d, below rank: %d\n", above_rank, below_rank);
+
+	display_grid = (char *) malloc(n*n);
+	recv_counts = (int *) malloc(sizeof(int)*p);
+	displs_counts = (int *) malloc(sizeof(int)*p);
+	for (i = 0; i < p; i++) {
+		recv_counts[i] = nrows*n;
+		displs_counts[i] = i*nrows*n;
+	}
 }
 
 void
@@ -245,6 +215,7 @@ send_top_row()
 {
 	struct timeval t_send1, t_send2;
 
+	printf("Sending from %d to %d\n", rank, above_rank);
 	gettimeofday(&t_send1, NULL);
 	MPI_Send(top_row, n, MPI_CHARACTER, above_rank, 0, MPI_COMM_WORLD);
 	gettimeofday(&t_send2, NULL);
@@ -258,6 +229,7 @@ send_bottom_row()
 {
 	struct timeval t_send1, t_send2;
 
+	printf("Sending from %d to %d\n", rank, below_rank);
 	gettimeofday(&t_send1, NULL);
 	MPI_Send(bottom_row, n, MPI_CHARACTER, below_rank, 0, MPI_COMM_WORLD);
 	gettimeofday(&t_send2, NULL);
@@ -335,17 +307,18 @@ Simulate()
 	struct timeval t_display1, t_display2;
 
 	for (i = 0; i < generations; i++) {
-		if (rank == 0)
-			printf("Gen %d\n", i);
-
 		/* Send current generation top and bottom rows so other procs
 		 * can calculate next generation. */
+		printf("Sending top and bottom rows");
 		send_top_row();
 		send_bottom_row();
+		printf("Done sending top and bottom rows");
 		/* Receive current generation above and below neighbors so we
 		 * can calculate the next generation */
+		printf("Getting top and bottom rows");
 		get_above_neighbors();
 		get_below_neighbors();
+		printf("Done getting top and bottom rows");
 
 		/* Calculate next generation */
 		for (row = 1; row <= nrows; row++) {
@@ -365,7 +338,9 @@ Simulate()
 
 		gettimeofday(&t_barrier1, NULL);
 		/* Keep procs on the same generation as each other */
+		printf("Barrier time");
 		MPI_Barrier(MPI_COMM_WORLD);
+		printf("End barrier time");
 		gettimeofday(&t_barrier2, NULL);
 		barrier_time += (t_barrier2.tv_sec-t_barrier1.tv_sec)*1000 +
 		    ((double) t_barrier2.tv_usec-t_barrier1.tv_usec)/1000;
