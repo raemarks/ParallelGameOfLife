@@ -64,7 +64,7 @@ int main(int argc, char *argv[])
 		 * time per generation, compute time per generation, display
 		 * time per generation, communicaiton time per display */
 		printf("rank, p, n, total, time/gen, comm/gen, comp/gen, display/gen,"
-		    " comm/display, send/gen, recv/gen, barrier/gen\n");
+		    " comm/display, sendrecv/gen, barrier/gen\n");
 	}
 	/* Not going to count this in the timing, since it's just to sync
 	 * before we print at the end */
@@ -73,10 +73,10 @@ int main(int argc, char *argv[])
 
 	/* Make sure total runtime excludes the display time. */
 	total_runtime -= display_time;
-	comm_time = send_time+recv_time+barrier_time;
+	comm_time = sendrecv_time+barrier_time;
 	comp_time = total_runtime - comm_time;
 
-	printf("%d, %d, %d, %lf, %lf, %lf, %lf, %lf, %lf, %lf, %lf, %lf\n",
+	printf("%d, %d, %d, %lf, %lf, %lf, %lf, %lf, %lf, %lf, %lf\n",
 	    rank,
 	    p,
 	    n,
@@ -86,8 +86,7 @@ int main(int argc, char *argv[])
 	    comp_time/generations,
 	    display_time/generations,
 	    gather_time/displays,
-	    send_time/generations,
-	    recv_time/generations,
+	    sendrecv_time/generations,
 	    barrier_time/generations
 	    );
 

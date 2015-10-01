@@ -44,10 +44,8 @@ int generations;
 double total_runtime = 0;
 double display_time = 0;
 int displays = 0;
-double send_time = 0;
-int sends = 0;
-double recv_time = 0;
-int recvs = 0;
+double sendrecv_time = 0;
+int sendrecvs = 0;
 double barrier_time = 0;
 int barriers = 0;
 double bcast_time = 0;
@@ -68,7 +66,6 @@ DisplayGoL()
 	int row, col;
 	struct timeval t_gather1, t_gather2;
 
-	printf("Gathering\n");
 	gettimeofday(&t_gather1, NULL);
 	MPI_Gatherv(get_cell(grid, 1, 0), nrows*n, MPI_CHARACTER, display_grid,
 	    recv_counts, displs_counts, MPI_CHARACTER, 0, MPI_COMM_WORLD);
@@ -76,7 +73,6 @@ DisplayGoL()
 	gather_time += (t_gather2.tv_sec-t_gather1.tv_sec)*1000 +
 	    ((double) t_gather2.tv_usec-t_gather1.tv_usec)/1000;
 	gathers++;
-	printf("Done gathering\n");
 
 	if (rank == 0) {
 		for (row = 0; row < n; row++) {
@@ -169,7 +165,6 @@ GenerateInitialGoL()
 	 * remembering that the grid wraps. */
 	above_rank = (rank + p - 1) % p;
 	below_rank = (rank + 1) % p;
-	printf("Above rank: %d, below rank: %d\n", above_rank, below_rank);
 
 	display_grid = (char *) malloc(n*n);
 	recv_counts = (int *) malloc(sizeof(int)*p);
@@ -181,61 +176,24 @@ GenerateInitialGoL()
 }
 
 void
-get_above_neighbors()
+communicate_borders()
 {
+	struct timeval t1, t2;
 	MPI_Status status;
-	struct timeval t_recv1, t_recv2;
 
-	gettimeofday(&t_recv1, NULL);
-	MPI_Recv(above_neighbors, n, MPI_CHARACTER, above_rank, MPI_ANY_TAG,
-	    MPI_COMM_WORLD, &status);
-	gettimeofday(&t_recv2, NULL);
-	recv_time += (t_recv2.tv_sec-t_recv1.tv_sec)*1000 +
-	    ((double) t_recv2.tv_usec-t_recv1.tv_usec)/1000;
-	recvs++;
-}
+	gettimeofday(&t1, NULL);
 
-void
-get_below_neighbors()
-{
-	MPI_Status status;
-	struct timeval t_recv1, t_recv2;
+	/* Send top row, get below row */
+	MPI_Sendrecv(top_row, n, MPI_CHARACTER, above_rank, 0, below_neighbors,
+	    n, MPI_CHARACTER, below_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+	/* Send bottom row, get above row */
+	MPI_Sendrecv(bottom_row, n, MPI_CHARACTER, below_rank, 0, above_neighbors,
+	    n, MPI_CHARACTER, above_rank, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 
-	gettimeofday(&t_recv1, NULL);
-	MPI_Recv(below_neighbors, n, MPI_CHARACTER, below_rank, MPI_ANY_TAG,
-	    MPI_COMM_WORLD, &status);
-	gettimeofday(&t_recv2, NULL);
-	recv_time += (t_recv2.tv_sec-t_recv1.tv_sec)*1000 +
-	    ((double) t_recv2.tv_usec-t_recv1.tv_usec)/1000;
-	recvs++;
-}
-
-void
-send_top_row()
-{
-	struct timeval t_send1, t_send2;
-
-	printf("Sending from %d to %d\n", rank, above_rank);
-	gettimeofday(&t_send1, NULL);
-	MPI_Send(top_row, n, MPI_CHARACTER, above_rank, 0, MPI_COMM_WORLD);
-	gettimeofday(&t_send2, NULL);
-	send_time += (t_send2.tv_sec-t_send1.tv_sec)*1000 +
-	    ((double) t_send2.tv_usec-t_send1.tv_usec)/1000;
-	sends++;
-}
-
-void
-send_bottom_row()
-{
-	struct timeval t_send1, t_send2;
-
-	printf("Sending from %d to %d\n", rank, below_rank);
-	gettimeofday(&t_send1, NULL);
-	MPI_Send(bottom_row, n, MPI_CHARACTER, below_rank, 0, MPI_COMM_WORLD);
-	gettimeofday(&t_send2, NULL);
-	send_time += (t_send2.tv_sec-t_send1.tv_sec)*1000 +
-	    ((double) t_send2.tv_usec-t_send1.tv_usec)/1000;
-	sends++;
+	gettimeofday(&t2, NULL);
+	sendrecv_time += (t2.tv_sec-t1.tv_sec)*1000 +
+	    ((double) t2.tv_usec-t1.tv_usec)/1000;
+	sendrecvs++;
 }
 
 char
@@ -309,16 +267,7 @@ Simulate()
 	for (i = 0; i < generations; i++) {
 		/* Send current generation top and bottom rows so other procs
 		 * can calculate next generation. */
-		printf("Sending top and bottom rows");
-		send_top_row();
-		send_bottom_row();
-		printf("Done sending top and bottom rows");
-		/* Receive current generation above and below neighbors so we
-		 * can calculate the next generation */
-		printf("Getting top and bottom rows");
-		get_above_neighbors();
-		get_below_neighbors();
-		printf("Done getting top and bottom rows");
+		communicate_borders();
 
 		/* Calculate next generation */
 		for (row = 1; row <= nrows; row++) {
@@ -338,9 +287,7 @@ Simulate()
 
 		gettimeofday(&t_barrier1, NULL);
 		/* Keep procs on the same generation as each other */
-		printf("Barrier time");
 		MPI_Barrier(MPI_COMM_WORLD);
-		printf("End barrier time");
 		gettimeofday(&t_barrier2, NULL);
 		barrier_time += (t_barrier2.tv_sec-t_barrier1.tv_sec)*1000 +
 		    ((double) t_barrier2.tv_usec-t_barrier1.tv_usec)/1000;
