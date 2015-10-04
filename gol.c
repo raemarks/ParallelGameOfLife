@@ -258,7 +258,6 @@ DetermineState(int row, int col)
 void
 Simulate()
 {
-	/* TODO: swap new and old grids! */
 	int i, row, col;
 	char *temp = NULL;
 	struct timeval t_barrier1, t_barrier2;

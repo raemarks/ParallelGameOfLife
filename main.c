@@ -28,6 +28,9 @@ int main(int argc, char *argv[])
 		printf("p: %d\n", p);
 
 #if 0
+	/* Commented out in favor of command line arguments instead - it
+	 * was faster to automate the process in the makefile to get results
+	 * quickly. */
 	if (rank == 0) {
 		printf("Choose an integer n for the n X n grid: \n");
 		scanf("%d", &n);
