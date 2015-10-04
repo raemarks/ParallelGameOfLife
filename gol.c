@@ -107,7 +107,6 @@ GenerateInitialGoL()
 	int row, col, i, myseed = 0, seed = 0;
 	MPI_Status status;
 
-
 	/* Generate p random numbers as seeds for each process. */
 	if (rank == 0) {
 		/* Generate, send for each proc. */
